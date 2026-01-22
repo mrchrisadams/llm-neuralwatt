@@ -1,0 +1,29 @@
+[project]
+name = "llm-neuralwatt"
+version = "0.1"
+description = "A plugin to add support for the Neuralwatt AI inference service to llm"
+readme = "README.md"
+authors = [{ name = "Chris Adams" }]
+license = "Apache-2.0"
+classifiers = []
+requires-python = ">=3.10"
+dependencies = ["llm"]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = true
+
+[project.urls]
+Homepage = "https://github.com/mrchrisadams/llm-neuralwatt"
+Changelog = "https://github.com/mrchrisadams/llm-neuralwatt/releases"
+Issues = "https://github.com/mrchrisadams/llm-neuralwatt/issues"
+CI = "https://github.com/mrchrisadams/llm-neuralwatt/actions"
+
+[project.entry-points.llm]
+neuralwatt = "llm_neuralwatt"
+
+[project.optional-dependencies]
+test = ["pytest"]
