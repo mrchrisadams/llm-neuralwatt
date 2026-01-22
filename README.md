@@ -24,7 +24,7 @@ Neuralwatt: neuralwatt/gpt-oss-20b (aliases: neuralwatt-gpt-oss)
 Neuralwatt: neuralwatt/Qwen3-Coder-480B-A35B-Instruct (aliases: neuralwatt-qwen3-coder)
 ```
 
-You will need to set a key with 
+You will need to set a key with:
 
 ```
 llm keys set neuralwatt
@@ -59,7 +59,7 @@ You can read more about how energy consumption is attributed to a single use in 
 
 **Important**: Energy consumption data is currently only available when using non-streaming responses (`--no-stream` flag). Due to how the OpenAI client library handles streaming responses, energy data chunks are filtered out during streaming.
 
-In streaming mode, Neuralwatt sends energy data as a special chunk just before the `[DONE]` marker in streaming responses (more in the docs)(https://portal.neuralwatt.com/docs/guides/streaming), but the OpenAI client does not preserve these non-standard chunks.
+In streaming mode, Neuralwatt sends energy data as a special chunk just before the `[DONE]` marker in streaming responses ([more in the Neuralwatt docs on streaming](https://portal.neuralwatt.com/docs/guides/streaming)), but the OpenAI client does not preserve these non-standard chunks.
 
 To ensure energy data is captured:
 ```bash
