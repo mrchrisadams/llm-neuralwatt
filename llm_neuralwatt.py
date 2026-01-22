@@ -4,7 +4,96 @@ from llm.default_plugins.openai_models import (
     remove_dict_none_values,
     combine_chunks,
 )
+import httpx
 import json
+
+
+def _parse_sse_line(line):
+    """
+    Parse a single SSE line and return (event_type, data).
+    
+    event_type is one of: 'chunk', 'energy', 'done', 'comment', None
+    """
+    line = line.strip()
+    if not line:
+        return (None, None)
+    
+    # Check for energy comment (Neuralwatt-specific)
+    if line.startswith(": energy "):
+        energy_json = line[9:]  # Skip ": energy "
+        try:
+            return ('energy', json.loads(energy_json))
+        except json.JSONDecodeError:
+            return ('comment', line)
+    
+    # Standard SSE comment (starts with :)
+    if line.startswith(":"):
+        return ('comment', line)
+    
+    # Standard SSE data line
+    if line.startswith("data: "):
+        data = line[6:]  # Skip "data: "
+        if data == "[DONE]":
+            return ('done', None)
+        try:
+            return ('chunk', json.loads(data))
+        except json.JSONDecodeError:
+            return (None, None)
+    
+    return (None, None)
+
+
+def _combine_streaming_chunks(chunks, energy_data=None):
+    """
+    Combine streaming chunks into a response dict, including energy data.
+    
+    This is similar to combine_chunks but works with raw dicts and includes energy.
+    """
+    content = ""
+    role = None
+    finish_reason = None
+    usage = {}
+    model = None
+    response_id = None
+    created = None
+    
+    for chunk in chunks:
+        if chunk.get('usage'):
+            usage = chunk['usage']
+        if chunk.get('model'):
+            model = chunk['model']
+        if chunk.get('id'):
+            response_id = chunk['id']
+        if chunk.get('created'):
+            created = chunk['created']
+        
+        choices = chunk.get('choices', [])
+        for choice in choices:
+            delta = choice.get('delta', {})
+            if delta.get('role'):
+                role = delta['role']
+            if delta.get('content') is not None:
+                content += delta['content']
+            if choice.get('finish_reason'):
+                finish_reason = choice['finish_reason']
+    
+    combined = {
+        "content": content,
+        "role": role,
+        "finish_reason": finish_reason,
+        "usage": usage,
+    }
+    
+    if response_id:
+        combined["id"] = response_id
+    if model:
+        combined["model"] = model
+    if created:
+        combined["created"] = created
+    if energy_data:
+        combined["energy"] = energy_data
+    
+    return remove_dict_none_values(combined)
 
 
 @llm.hookimpl
@@ -73,60 +162,102 @@ class NeuralWattChat(NeuralWattShared, llm.KeyModel):
     def execute(self, prompt, stream, response, conversation=None, key=None):
         """
         Execute a chat completion sending a request to the NeuralWatt API,
-        preserving returned energy data to store in llm's local logs.db
-        Only non-streaming is currently supported, because the final 'energy' chunk
-        is only available at the end of the response, and it looks like it gets
-        filtered out by the OpenAI client's streaming implementation.
+        preserving returned energy data to store in llm's local logs.db.
+        
+        For streaming requests, we use httpx directly to capture the energy
+        data that Neuralwatt sends as an SSE comment before [DONE].
         """
         if prompt.system and not self.allows_system_prompt:
             raise NotImplementedError("Model does not support system prompts")
         messages = self.build_messages(prompt, conversation)
         kwargs = self.build_kwargs(prompt, stream)
-        client = self.get_client(key)
         usage = None
 
         if stream:
-            completion = client.chat.completions.create(
-                model=self.model_name or self.model_id,
-                messages=messages,
-                stream=True,
+            # Use custom httpx-based streaming to capture energy data
+            api_key = self.get_key(key)
+            
+            request_body = {
+                "model": self.model_name or self.model_id,
+                "messages": messages,
+                "stream": True,
                 **kwargs,
-            )
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            
             chunks = []
+            energy_data = None
             tool_calls = {}
-
-            for chunk in completion:
-                chunks.append(chunk)
-                if chunk.usage:
-                    usage = chunk.usage.model_dump()
-                if chunk.choices and chunk.choices[0].delta:
-                    for tool_call in chunk.choices[0].delta.tool_calls or []:
-                        if tool_call.function.arguments is None:
-                            tool_call.function.arguments = ""
-                        index = tool_call.index
-                        if index not in tool_calls:
-                            tool_calls[index] = tool_call
-                        else:
-                            tool_calls[
-                                index
-                            ].function.arguments += tool_call.function.arguments
-                try:
-                    content = chunk.choices[0].delta.content
-                except IndexError:
-                    content = None
-                if content is not None:
-                    yield content
-            response.response_json = remove_dict_none_values(combine_chunks(chunks))
+            
+            with httpx.Client(timeout=None) as client:
+                with client.stream(
+                    "POST",
+                    f"{self.api_base}/chat/completions",
+                    headers=headers,
+                    json=request_body,
+                ) as http_response:
+                    http_response.raise_for_status()
+                    
+                    buffer = ""
+                    for chunk_bytes in http_response.iter_bytes():
+                        buffer += chunk_bytes.decode('utf-8')
+                        
+                        # Process complete lines
+                        while '\n' in buffer:
+                            line, buffer = buffer.split('\n', 1)
+                            event_type, data = _parse_sse_line(line)
+                            
+                            if event_type == 'energy':
+                                energy_data = data
+                            elif event_type == 'chunk':
+                                chunks.append(data)
+                                
+                                # Extract usage if present
+                                if data.get('usage'):
+                                    usage = data['usage']
+                                
+                                # Handle tool calls
+                                choices = data.get('choices', [])
+                                if choices and choices[0].get('delta'):
+                                    delta = choices[0]['delta']
+                                    for tc in delta.get('tool_calls', []) or []:
+                                        if tc.get('function', {}).get('arguments') is None:
+                                            tc['function']['arguments'] = ""
+                                        index = tc.get('index', 0)
+                                        if index not in tool_calls:
+                                            tool_calls[index] = tc
+                                        else:
+                                            tool_calls[index]['function']['arguments'] += tc['function']['arguments']
+                                
+                                # Yield content
+                                choices = data.get('choices', [])
+                                if choices:
+                                    delta = choices[0].get('delta', {})
+                                    content = delta.get('content')
+                                    if content is not None:
+                                        yield content
+                            elif event_type == 'done':
+                                break
+            
+            # Combine chunks into response_json with energy data
+            response.response_json = _combine_streaming_chunks(chunks, energy_data)
+            
             if tool_calls:
                 for value in tool_calls.values():
                     response.add_tool_call(
                         llm.ToolCall(
-                            tool_call_id=value.id,
-                            name=value.function.name,
-                            arguments=json.loads(value.function.arguments),
+                            tool_call_id=value.get('id'),
+                            name=value.get('function', {}).get('name'),
+                            arguments=json.loads(value.get('function', {}).get('arguments', '{}')),
                         )
                     )
         else:
+            # Non-streaming: use OpenAI client (energy data is in the response)
+            client = self.get_client(key)
             completion = client.chat.completions.create(
                 model=self.model_name or self.model_id,
                 messages=messages,
@@ -134,11 +265,10 @@ class NeuralWattChat(NeuralWattShared, llm.KeyModel):
                 **kwargs,
             )
             usage = completion.usage.model_dump() if completion.usage else None
-            # Preserve ALL data including energy - don't filter unnecessarily early
+            # Preserve ALL data including energy
             response_data = completion.model_dump()
-
-            # Apply remove_dict_none_values only at the end
             response.response_json = remove_dict_none_values(d=response_data)
+            
             for tool_call in completion.choices[0].message.tool_calls or []:
                 response.add_tool_call(
                     llm.ToolCall(
@@ -151,6 +281,7 @@ class NeuralWattChat(NeuralWattShared, llm.KeyModel):
                 )
             if completion.choices[0].message.content is not None:
                 yield completion.choices[0].message.content
+        
         self.set_usage(response, usage)
         response._prompt_json = {"messages": messages}
 
@@ -161,63 +292,102 @@ class NeuralWattAsyncChat(NeuralWattShared, llm.AsyncKeyModel):
     async def execute(self, prompt, stream, response, conversation=None, key=None):
         """
         Execute a chat completion sending a request to the NeuralWatt API,
-        preserving returned energy data to store in llm's local logs.db
-        Only non-streaming is currently supported, because the final 'energy' chunk
-        is only available at the end of the response, and it looks like it gets
-        filtered out by the OpenAI client's streaming implementation.
+        preserving returned energy data to store in llm's local logs.db.
+        
+        For streaming requests, we use httpx directly to capture the energy
+        data that Neuralwatt sends as an SSE comment before [DONE].
         """
         if prompt.system and not self.allows_system_prompt:
             raise NotImplementedError("Model does not support system prompts")
         messages = self.build_messages(prompt, conversation)
         kwargs = self.build_kwargs(prompt, stream)
-        client = self.get_client(key, async_=True)
         usage = None
 
         if stream:
-            completion = await client.chat.completions.create(
-                model=self.model_name or self.model_id,
-                messages=messages,
-                stream=True,
+            # Use custom httpx-based streaming to capture energy data
+            api_key = self.get_key(key)
+            
+            request_body = {
+                "model": self.model_name or self.model_id,
+                "messages": messages,
+                "stream": True,
                 **kwargs,
-            )
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            
             chunks = []
+            energy_data = None
             tool_calls = {}
-
-            async for chunk in completion:
-                chunks.append(chunk)
-                if chunk.usage:
-                    usage = chunk.usage.model_dump()
-                if chunk.choices and chunk.choices[0].delta:
-                    for tool_call in chunk.choices[0].delta.tool_calls or []:
-                        if tool_call.function.arguments is None:
-                            tool_call.function.arguments = ""
-                        index = tool_call.index
-                        if index not in tool_calls:
-                            tool_calls[index] = tool_call
-                        else:
-                            tool_calls[
-                                index
-                            ].function.arguments += tool_call.function.arguments
-                try:
-                    content = chunk.choices[0].delta.content
-                except IndexError:
-                    content = None
-                if content is not None:
-                    yield content
-
-            # Use enhanced combine that preserves energy data
-            response.response_json = self.combine_chunks_with_energy(chunks)
-
+            
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.api_base}/chat/completions",
+                    headers=headers,
+                    json=request_body,
+                ) as http_response:
+                    http_response.raise_for_status()
+                    
+                    buffer = ""
+                    async for chunk_bytes in http_response.aiter_bytes():
+                        buffer += chunk_bytes.decode('utf-8')
+                        
+                        # Process complete lines
+                        while '\n' in buffer:
+                            line, buffer = buffer.split('\n', 1)
+                            event_type, data = _parse_sse_line(line)
+                            
+                            if event_type == 'energy':
+                                energy_data = data
+                            elif event_type == 'chunk':
+                                chunks.append(data)
+                                
+                                # Extract usage if present
+                                if data.get('usage'):
+                                    usage = data['usage']
+                                
+                                # Handle tool calls
+                                choices = data.get('choices', [])
+                                if choices and choices[0].get('delta'):
+                                    delta = choices[0]['delta']
+                                    for tc in delta.get('tool_calls', []) or []:
+                                        if tc.get('function', {}).get('arguments') is None:
+                                            tc['function']['arguments'] = ""
+                                        index = tc.get('index', 0)
+                                        if index not in tool_calls:
+                                            tool_calls[index] = tc
+                                        else:
+                                            tool_calls[index]['function']['arguments'] += tc['function']['arguments']
+                                
+                                # Yield content
+                                choices = data.get('choices', [])
+                                if choices:
+                                    delta = choices[0].get('delta', {})
+                                    content = delta.get('content')
+                                    if content is not None:
+                                        yield content
+                            elif event_type == 'done':
+                                break
+            
+            # Combine chunks into response_json with energy data
+            response.response_json = _combine_streaming_chunks(chunks, energy_data)
+            
             if tool_calls:
                 for value in tool_calls.values():
                     response.add_tool_call(
                         llm.ToolCall(
-                            tool_call_id=value.id,
-                            name=value.function.name,
-                            arguments=json.loads(value.function.arguments),
+                            tool_call_id=value.get('id'),
+                            name=value.get('function', {}).get('name'),
+                            arguments=json.loads(value.get('function', {}).get('arguments', '{}')),
                         )
                     )
         else:
+            # Non-streaming: use OpenAI client (energy data is in the response)
+            client = self.get_client(key, async_=True)
             completion = await client.chat.completions.create(
                 model=self.model_name or self.model_id,
                 messages=messages,
@@ -227,10 +397,8 @@ class NeuralWattAsyncChat(NeuralWattShared, llm.AsyncKeyModel):
             usage = completion.usage.model_dump() if completion.usage else None
             # Preserve ALL data including energy
             response_data = completion.model_dump()
-
-            # Apply remove_dict_none_values only at the end
             response.response_json = remove_dict_none_values(response_data)
-
+            
             for tool_call in completion.choices[0].message.tool_calls or []:
                 response.add_tool_call(
                     llm.ToolCall(
@@ -243,5 +411,6 @@ class NeuralWattAsyncChat(NeuralWattShared, llm.AsyncKeyModel):
                 )
             if completion.choices[0].message.content is not None:
                 yield completion.choices[0].message.content
+        
         self.set_usage(response, usage)
         response._prompt_json = {"messages": messages}

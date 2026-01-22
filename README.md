@@ -55,22 +55,17 @@ Each energy measurement includes:
 
 You can read more about how energy consumption is attributed to a single use in the [Neuralwatt docs](https://portal.neuralwatt.com/docs/energy-methodology)
 
-### Known issues with Streaming vs Non-Streaming Requests
+### Streaming Support
 
-**Important**: Energy consumption data is currently only available when using non-streaming responses (`--no-stream` flag). Due to how the OpenAI client library handles streaming responses, energy data chunks are filtered out during streaming.
+Energy consumption data is captured in both streaming and non-streaming modes. The plugin uses a custom HTTP streaming implementation to capture the energy data that Neuralwatt sends as an SSE comment just before the `[DONE]` marker.
 
-In streaming mode, Neuralwatt sends energy data as a special chunk just before the `[DONE]` marker in streaming responses ([more in the Neuralwatt docs on streaming](https://portal.neuralwatt.com/docs/guides/streaming)), but the OpenAI client does not preserve these non-standard chunks.
-
-To ensure energy data is captured:
 ```bash
-# ✅ This will capture energy data
-llm "Explain quantum computing" -m neuralwatt-gpt-oss --no-stream
-
-# ❌ This will NOT capture energy data due to streaming limitation
+# Both streaming and non-streaming capture energy data
 llm "Explain quantum computing" -m neuralwatt-gpt-oss
+llm "Explain quantum computing" -m neuralwatt-gpt-oss --no-stream
 ```
 
-We're investigating ways to work around this limitation in future versions of the plugin.
+For more details on how Neuralwatt handles streaming, see the [Neuralwatt streaming docs](https://portal.neuralwatt.com/docs/guides/streaming).
 
 ## Development
 
