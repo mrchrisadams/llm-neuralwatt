@@ -12,139 +12,130 @@ Neuralwatt is an OpenAI-compatible inference API that measures and reports the e
 
 Shows the system's relationship with users and external systems.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              CONTEXT                                        │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+C4Context
+    title System Context Diagram for llm-neuralwatt
 
-    ┌──────────┐         ┌─────────────────────┐         ┌──────────────────┐
-    │          │  uses   │                     │  calls  │                  │
-    │   User   │────────▶│   LLM CLI Tool      │────────▶│  Neuralwatt API  │
-    │          │         │   + neuralwatt      │         │                  │
-    └──────────┘         │     plugin          │         │  (measures GPU   │
-                         │                     │◀────────│   energy usage)  │
-                         └─────────────────────┘ returns └──────────────────┘
-                                   │             response
-                                   │             + energy
-                                   │             data
-                                   ▼
-                         ┌─────────────────────┐
-                         │                     │
-                         │   logs.db           │
-                         │   (SQLite)          │
-                         │                     │
-                         │   Stores prompts,   │
-                         │   responses, and    │
-                         │   energy metrics    │
-                         │                     │
-                         └─────────────────────┘
+    Person(user, "User", "Developer using LLM CLI tool")
+    
+    System(llm, "LLM Tool + neuralwatt plugin", "CLI tool for interacting with LLMs, with plugin for Neuralwatt energy tracking")
+    
+    System_Ext(neuralwatt, "Neuralwatt API", "OpenAI-compatible inference API that measures GPU energy consumption")
+    
+    SystemDb(logsdb, "logs.db", "SQLite database storing prompts, responses, and energy metrics")
+
+    Rel(user, llm, "Uses", "CLI commands")
+    Rel(llm, neuralwatt, "Calls", "HTTPS/REST")
+    Rel(neuralwatt, llm, "Returns", "Response + energy data")
+    Rel(llm, logsdb, "Stores", "Logs with energy metrics")
 ```
 
 ### Container Diagram
 
 Shows the high-level components and how they interact.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              CONTAINER                                      │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+C4Container
+    title Container Diagram for llm-neuralwatt
 
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           User's Machine                                    │
-│                                                                             │
-│  ┌─────────────┐      ┌──────────────────────────────────────────────────┐ │
-│  │             │      │                  LLM Tool                         │ │
-│  │  Terminal   │─────▶│  ┌────────────────────────────────────────────┐  │ │
-│  │             │      │  │           Plugin System                    │  │ │
-│  └─────────────┘      │  │  ┌──────────────────────────────────────┐  │  │ │
-│                       │  │  │       llm-neuralwatt plugin          │  │  │ │
-│                       │  │  │                                      │  │  │ │
-│                       │  │  │  • NeuralWattChat                    │  │  │ │
-│                       │  │  │  • NeuralWattAsyncChat               │  │  │ │
-│                       │  │  │  • Custom OpenAI clients             │  │  │ │
-│                       │  │  │  • EnergyCapturingSSEDecoder         │  │  │ │
-│                       │  │  └──────────────────────────────────────┘  │  │ │
-│                       │  └────────────────────────────────────────────┘  │ │
-│                       │                       │                          │ │
-│                       │                       ▼                          │ │
-│                       │              ┌─────────────────┐                 │ │
-│                       │              │    logs.db      │                 │ │
-│                       │              │    (SQLite)     │                 │ │
-│                       │              └─────────────────┘                 │ │
-│                       └──────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        │ HTTPS
-                                        ▼
-                         ┌──────────────────────────────┐
-                         │      Neuralwatt API          │
-                         │                              │
-                         │  • OpenAI-compatible         │
-                         │  • GPU energy measurement    │
-                         │  • Returns energy metrics    │
-                         │    in API responses          │
-                         └──────────────────────────────┘
+    Person(user, "User", "Developer")
+
+    Container_Boundary(local, "User's Machine") {
+        Container(terminal, "Terminal", "CLI", "User runs llm commands")
+        Container(llmtool, "LLM Tool", "Python", "CLI tool with plugin system")
+        Container(plugin, "llm-neuralwatt", "Python Plugin", "Neuralwatt integration with energy capture")
+        ContainerDb(logsdb, "logs.db", "SQLite", "Stores prompts, responses, energy data")
+    }
+
+    System_Ext(neuralwatt, "Neuralwatt API", "Inference API with energy measurement")
+
+    Rel(user, terminal, "Types commands")
+    Rel(terminal, llmtool, "Executes")
+    Rel(llmtool, plugin, "Loads & calls")
+    Rel(plugin, neuralwatt, "API requests", "HTTPS")
+    Rel(neuralwatt, plugin, "Responses + energy", "JSON/SSE")
+    Rel(llmtool, logsdb, "Persists logs")
 ```
 
 ### Component Diagram
 
 Shows the internal components of the llm-neuralwatt plugin.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              COMPONENT                                      │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+C4Component
+    title Component Diagram for llm-neuralwatt Plugin
 
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        llm-neuralwatt plugin                                │
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                      Model Classes                                   │   │
-│  │                                                                      │   │
-│  │   ┌─────────────────────┐      ┌─────────────────────┐              │   │
-│  │   │  NeuralWattChat     │      │ NeuralWattAsyncChat │              │   │
-│  │   │                     │      │                     │              │   │
-│  │   │  Sync execution     │      │  Async execution    │              │   │
-│  │   │  of prompts         │      │  of prompts         │              │   │
-│  │   └──────────┬──────────┘      └──────────┬──────────┘              │   │
-│  │              │                            │                          │   │
-│  │              └────────────┬───────────────┘                          │   │
-│  │                           │                                          │   │
-│  │                           ▼                                          │   │
-│  │              ┌─────────────────────────┐                             │   │
-│  │              │    NeuralWattShared     │                             │   │
-│  │              │                         │                             │   │
-│  │              │  • get_client()         │                             │   │
-│  │              │  • build_messages()     │                             │   │
-│  │              │  • API configuration    │                             │   │
-│  │              └────────────┬────────────┘                             │   │
-│  │                           │                                          │   │
-│  └───────────────────────────┼──────────────────────────────────────────┘   │
-│                              │                                              │
-│  ┌───────────────────────────┼──────────────────────────────────────────┐   │
-│  │                    Custom OpenAI Clients                             │   │
-│  │                           │                                          │   │
-│  │   ┌───────────────────────▼───────────────────────┐                  │   │
-│  │   │           NeuralWattOpenAI                    │                  │   │
-│  │   │           NeuralWattAsyncOpenAI               │                  │   │
-│  │   │                                               │                  │   │
-│  │   │  • Subclass of openai.OpenAI                  │                  │   │
-│  │   │  • Override _make_sse_decoder()               │                  │   │
-│  │   │  • Expose get_last_energy_data()              │                  │   │
-│  │   └───────────────────────┬───────────────────────┘                  │   │
-│  │                           │                                          │   │
-│  │                           ▼                                          │   │
-│  │   ┌───────────────────────────────────────────────┐                  │   │
-│  │   │       EnergyCapturingSSEDecoder               │                  │   │
-│  │   │                                               │                  │   │
-│  │   │  • Subclass of openai._streaming.SSEDecoder   │                  │   │
-│  │   │  • Captures ': energy' SSE comments           │                  │   │
-│  │   │  • Stores energy_data for later retrieval     │                  │   │
-│  │   └───────────────────────────────────────────────┘                  │   │
-│  │                                                                      │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+    Container_Boundary(plugin, "llm-neuralwatt Plugin") {
+        Component(chat, "NeuralWattChat", "Model Class", "Sync execution of prompts")
+        Component(asyncchat, "NeuralWattAsyncChat", "Model Class", "Async execution of prompts")
+        Component(shared, "NeuralWattShared", "Base Class", "Shared config, get_client(), build_messages()")
+        Component(client, "NeuralWattOpenAI", "Client Subclass", "OpenAI client that captures energy data")
+        Component(asyncclient, "NeuralWattAsyncOpenAI", "Client Subclass", "Async OpenAI client that captures energy data")
+        Component(decoder, "EnergyCapturingSSEDecoder", "SSE Decoder", "Captures energy comments from SSE stream")
+    }
+
+    System_Ext(openai, "openai Python library", "OpenAI client library")
+    System_Ext(neuralwatt, "Neuralwatt API", "Inference API")
+
+    Rel(chat, shared, "Inherits")
+    Rel(asyncchat, shared, "Inherits")
+    Rel(shared, client, "Creates via get_client()")
+    Rel(shared, asyncclient, "Creates via get_client(async_=True)")
+    Rel(client, decoder, "Uses for streaming")
+    Rel(asyncclient, decoder, "Uses for streaming")
+    Rel(client, openai, "Extends OpenAI")
+    Rel(asyncclient, openai, "Extends AsyncOpenAI")
+    Rel(decoder, openai, "Extends SSEDecoder")
+    Rel(client, neuralwatt, "HTTP requests")
+```
+
+### Class Diagram
+
+Shows the inheritance hierarchy for energy capture.
+
+```mermaid
+classDiagram
+    class SSEDecoder {
+        <<openai._streaming>>
+        +decode(line: str) ServerSentEvent|None
+        +iter_bytes(iterator) Iterator
+        +aiter_bytes(iterator) AsyncIterator
+    }
+
+    class EnergyCapturingSSEDecoder {
+        +energy_data: dict|None
+        +decode(line: str) ServerSentEvent|None
+    }
+
+    class OpenAI {
+        <<openai>>
+        +_make_sse_decoder() SSEDecoder
+        +chat: ChatCompletions
+    }
+
+    class NeuralWattOpenAI {
+        -_last_decoder: EnergyCapturingSSEDecoder
+        +_make_sse_decoder() EnergyCapturingSSEDecoder
+        +get_last_energy_data() dict|None
+    }
+
+    class AsyncOpenAI {
+        <<openai>>
+        +_make_sse_decoder() SSEDecoder
+        +chat: AsyncChatCompletions
+    }
+
+    class NeuralWattAsyncOpenAI {
+        -_last_decoder: EnergyCapturingSSEDecoder
+        +_make_sse_decoder() EnergyCapturingSSEDecoder
+        +get_last_energy_data() dict|None
+    }
+
+    SSEDecoder <|-- EnergyCapturingSSEDecoder : extends
+    OpenAI <|-- NeuralWattOpenAI : extends
+    AsyncOpenAI <|-- NeuralWattAsyncOpenAI : extends
+    NeuralWattOpenAI ..> EnergyCapturingSSEDecoder : creates
+    NeuralWattAsyncOpenAI ..> EnergyCapturingSSEDecoder : creates
 ```
 
 ## How Energy Data is Transmitted
@@ -194,102 +185,46 @@ def decode(self, line: str) -> ServerSentEvent | None:
 
 ### Our Solution: Custom SSE Decoder
 
-We subclass the SSE decoder to capture energy comments before they're discarded:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         CLASS DIAGRAM                                       │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-                    ┌────────────────────────────────┐
-                    │   openai._streaming.SSEDecoder │
-                    │                                │
-                    │  + decode(line) -> Event|None  │
-                    │  + iter_bytes(iterator)        │
-                    │  + aiter_bytes(iterator)       │
-                    └────────────────┬───────────────┘
-                                     │
-                                     │ extends
-                                     │
-                    ┌────────────────▼───────────────┐
-                    │  EnergyCapturingSSEDecoder     │
-                    │                                │
-                    │  + energy_data: dict | None    │
-                    │  + decode(line) -> Event|None  │
-                    │    ─────────────────────────   │
-                    │    if line starts with         │
-                    │    ": energy ", parse JSON     │
-                    │    and store in energy_data,   │
-                    │    else call super().decode()  │
-                    └────────────────────────────────┘
-
-
-                    ┌────────────────────────────────┐
-                    │       openai.OpenAI            │
-                    │                                │
-                    │  + _make_sse_decoder()         │
-                    │    -> SSEDecoder               │
-                    └────────────────┬───────────────┘
-                                     │
-                                     │ extends
-                                     │
-                    ┌────────────────▼───────────────┐
-                    │     NeuralWattOpenAI           │
-                    │                                │
-                    │  - _last_decoder: Decoder      │
-                    │  + _make_sse_decoder()         │
-                    │    -> EnergyCapturingSSEDecoder│
-                    │  + get_last_energy_data()      │
-                    │    -> dict | None              │
-                    └────────────────────────────────┘
-```
+We subclass the SSE decoder to capture energy comments before they're discarded.
 
 ## Data Flow: Streaming Request
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         SEQUENCE DIAGRAM                                    │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant User
+    participant LLM as LLM Tool
+    participant Chat as NeuralWattChat
+    participant Client as NeuralWattOpenAI
+    participant Decoder as EnergyCapturingSSEDecoder
+    participant API as Neuralwatt API
 
-  User          LLM         NeuralWattChat    NeuralWattOpenAI    Neuralwatt API
-   │             │                │                  │                  │
-   │ llm "Hi"    │                │                  │                  │
-   │────────────▶│                │                  │                  │
-   │             │  execute()     │                  │                  │
-   │             │───────────────▶│                  │                  │
-   │             │                │  get_client()    │                  │
-   │             │                │─────────────────▶│                  │
-   │             │                │                  │                  │
-   │             │                │  stream request  │                  │
-   │             │                │─────────────────▶│  POST /v1/chat   │
-   │             │                │                  │─────────────────▶│
-   │             │                │                  │                  │
-   │             │                │                  │  SSE chunks      │
-   │             │                │                  │◀─────────────────│
-   │             │                │                  │                  │
-   │             │                │                  │  EnergyCapturing │
-   │             │                │                  │  SSEDecoder      │
-   │             │                │                  │  captures        │
-   │             │                │                  │  ": energy {...}"│
-   │             │                │                  │                  │
-   │             │                │  yield chunks    │                  │
-   │  "Hello!"   │◀───────────────│◀─────────────────│                  │
-   │◀────────────│                │                  │                  │
-   │             │                │                  │                  │
-   │             │                │  get_last_       │                  │
-   │             │                │  energy_data()   │                  │
-   │             │                │─────────────────▶│                  │
-   │             │                │                  │                  │
-   │             │                │  {energy_joules: │                  │
-   │             │                │◀──15.23, ...}    │                  │
-   │             │                │                  │                  │
-   │             │  response_json │                  │                  │
-   │             │  with energy   │                  │                  │
-   │             │◀───────────────│                  │                  │
-   │             │                │                  │                  │
-   │             │  Store in      │                  │                  │
-   │             │  logs.db       │                  │                  │
-   │             │                │                  │                  │
+    User->>LLM: llm "Hello" -m neuralwatt-gpt-oss
+    LLM->>Chat: execute(prompt, stream=True)
+    Chat->>Client: get_client()
+    Chat->>Client: chat.completions.create(stream=True)
+    Client->>API: POST /v1/chat/completions
+    
+    loop SSE Stream
+        API-->>Client: data: {"delta": {"content": "Hi"}}
+        Client->>Decoder: decode(line)
+        Decoder-->>Client: ServerSentEvent
+        Client-->>Chat: chunk
+        Chat-->>LLM: yield "Hi"
+        LLM-->>User: "Hi"
+    end
+    
+    API-->>Client: : energy {"energy_joules": 15.23, ...}
+    Client->>Decoder: decode(line)
+    Note over Decoder: Captures energy data<br/>stores in self.energy_data
+    Decoder-->>Client: None (not emitted as event)
+    
+    API-->>Client: data: [DONE]
+    
+    Chat->>Client: get_last_energy_data()
+    Client-->>Chat: {"energy_joules": 15.23, ...}
+    Chat->>Chat: Add energy to response_json
+    Chat-->>LLM: response with energy
+    LLM->>LLM: Store in logs.db
 ```
 
 ## Energy Data Fields
