@@ -55,22 +55,40 @@ Each energy measurement includes:
 
 You can read more about how energy consumption is attributed to a single use in the [Neuralwatt docs](https://portal.neuralwatt.com/docs/energy-methodology)
 
-### Known issues with Streaming vs Non-Streaming Requests
+### Energy Consumption Logging
 
-**Important**: Energy consumption data is currently only available when using non-streaming responses (`--no-stream` flag). Due to how the OpenAI client library handles streaming responses, energy data chunks are filtered out during streaming.
+This plugin now captures and logs energy consumption data from both streaming and non-streaming Neuralwatt API responses. Energy data is stored in the `response_json` field of the llm logs database.
 
-In streaming mode, Neuralwatt sends energy data as a special chunk just before the `[DONE]` marker in streaming responses ([more in the Neuralwatt docs on streaming](https://portal.neuralwatt.com/docs/guides/streaming)), but the OpenAI client does not preserve these non-standard chunks.
-
-To ensure energy data is captured:
+To view energy consumption for your requests:
 ```bash
-# ✅ This will capture energy data
-llm "Explain quantum computing" -m neuralwatt-gpt-oss --no-stream
+# View recent logs with energy data (streaming and non-streaming)
+llm logs --model neuralwatt-gpt-oss --json | jq '.[-5:].response_json.energy'
 
-# ❌ This will NOT capture energy data due to streaming limitation
-llm "Explain quantum computing" -m neuralwatt-gpt-oss
+# Query specific energy metrics
+llm logs --model neuralwatt-deepseek-coder --json | jq -r '.[] | select(.response_json.energy != null) | "\(.datetime_utc): \(.response_json.energy.energy_joules) joules, \(.response_json.energy.energy_kwh) kWh"'
 ```
 
-We're investigating ways to work around this limitation in future versions of the plugin.
+Each energy measurement includes:
+- `energy_joules`: Energy consumption in joules
+- `energy_kwh`: Energy consumption in kilowatt-hours  
+- `avg_power_watts`: Average power consumption in watts
+- `duration_seconds`: Duration of the API call
+- `attribution_method`: How energy was attributed
+- `attribution_ratio`: Ratio of energy attribution
+
+#### Streaming Support
+
+✅ **Both streaming and non-streaming now capture energy data!**
+
+```bash
+# Both of these now capture energy data
+llm "Explain quantum computing" -m neuralwatt-gpt-oss --no-stream
+llm "Explain quantum computing" -m neuralwatt-gpt-oss  # streaming
+```
+
+The plugin implements custom SSE parsing to capture NeuralWatt's special energy events that are sent as non-standard chunks in the stream.
+
+You can read more about how energy consumption is attributed to a single use in the [Neuralwatt docs](https://portal.neuralwatt.com/docs/energy-methodology) and [streaming documentation](https://portal.neuralwatt.com/docs/guides/streaming).
 
 ## Development
 
