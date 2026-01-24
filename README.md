@@ -5,7 +5,9 @@
 [![Tests](https://github.com/mrchrisadams/llm-neuralwatt/actions/workflows/test.yml/badge.svg)](https://github.com/mrchrisadams/llm-neuralwatt/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/mrchrisadams/llm-neuralwatt/blob/main/LICENSE)
 
-A plugin to add support for the OpenAI compatible Neuralwatt inference service, to run inference against various open weights models, and return the direct energy measurements in the response as well as logging it locally in llm's logs.db sqlite file.
+An plugin to add support for the OpenAI compatible Neuralwatt inference service, to run inference against various open weights models, and return the direct energy measurements in the response as well as logging it locally in llm's logs.db sqlite file.
+
+This is not an official plugin from Neuralwatt.
 
 ## Installation
 
