@@ -1,6 +1,6 @@
 [project]
 name = "llm-neuralwatt"
-version = "0.0.1"
+version = "0.0.2"
 description = "A plugin to add support for the Neuralwatt AI inference service to llm"
 readme = "README.md"
 authors = [{ name = "Chris Adams" }]
