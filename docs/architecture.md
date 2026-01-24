@@ -12,82 +12,21 @@ Neuralwatt is an OpenAI-compatible inference API that measures and reports the e
 
 Shows the system's relationship with users and external systems.
 
-```mermaid
-C4Context
-    title System Context Diagram for llm-neuralwatt
+![c4-context](./llm-neuralwatt-c4-context.png)
 
-    Person(user, "User", "Developer using LLM CLI tool")
-    
-    System(llm, "LLM Tool + neuralwatt plugin", "CLI tool for interacting with LLMs, with plugin for Neuralwatt energy tracking")
-    
-    System_Ext(neuralwatt, "Neuralwatt API", "OpenAI-compatible inference API that measures GPU energy consumption")
-    
-    SystemDb(logsdb, "logs.db", "SQLite database storing prompts, responses, and energy metrics")
-
-    Rel(user, llm, "Uses", "CLI commands")
-    Rel(llm, neuralwatt, "Calls", "HTTPS/REST")
-    Rel(neuralwatt, llm, "Returns", "Response + energy data")
-    Rel(llm, logsdb, "Stores", "Logs with energy metrics")
-```
 
 ### Container Diagram
 
 Shows the high-level components and how they interact.
 
-```mermaid
-C4Container
-    title Container Diagram for llm-neuralwatt
-
-    Person(user, "User", "Developer")
-
-    Container_Boundary(local, "User's Machine") {
-        Container(terminal, "Terminal", "CLI", "User runs llm commands")
-        Container(llmtool, "LLM Tool", "Python", "CLI tool with plugin system")
-        Container(plugin, "llm-neuralwatt", "Python Plugin", "Neuralwatt integration with energy capture")
-        ContainerDb(logsdb, "logs.db", "SQLite", "Stores prompts, responses, energy data")
-    }
-
-    System_Ext(neuralwatt, "Neuralwatt API", "Inference API with energy measurement")
-
-    Rel(user, terminal, "Types commands")
-    Rel(terminal, llmtool, "Executes")
-    Rel(llmtool, plugin, "Loads & calls")
-    Rel(plugin, neuralwatt, "API requests", "HTTPS")
-    Rel(neuralwatt, plugin, "Responses + energy", "JSON/SSE")
-    Rel(llmtool, logsdb, "Persists logs")
-```
+![c4-context](./llm-neuralwatt-c4-containers.png)
 
 ### Component Diagram
 
 Shows the internal components of the llm-neuralwatt plugin.
 
-```mermaid
-C4Component
-    title Component Diagram for llm-neuralwatt Plugin
 
-    Container_Boundary(plugin, "llm-neuralwatt Plugin") {
-        Component(chat, "NeuralWattChat", "Model Class", "Sync execution of prompts")
-        Component(asyncchat, "NeuralWattAsyncChat", "Model Class", "Async execution of prompts")
-        Component(shared, "NeuralWattShared", "Base Class", "Shared config, get_client(), build_messages()")
-        Component(client, "NeuralWattOpenAI", "Client Subclass", "OpenAI client that captures energy data")
-        Component(asyncclient, "NeuralWattAsyncOpenAI", "Client Subclass", "Async OpenAI client that captures energy data")
-        Component(decoder, "EnergyCapturingSSEDecoder", "SSE Decoder", "Captures energy comments from SSE stream")
-    }
-
-    System_Ext(openai, "openai Python library", "OpenAI client library")
-    System_Ext(neuralwatt, "Neuralwatt API", "Inference API")
-
-    Rel(chat, shared, "Inherits")
-    Rel(asyncchat, shared, "Inherits")
-    Rel(shared, client, "Creates via get_client()")
-    Rel(shared, asyncclient, "Creates via get_client(async_=True)")
-    Rel(client, decoder, "Uses for streaming")
-    Rel(asyncclient, decoder, "Uses for streaming")
-    Rel(client, openai, "Extends OpenAI")
-    Rel(asyncclient, openai, "Extends AsyncOpenAI")
-    Rel(decoder, openai, "Extends SSEDecoder")
-    Rel(client, neuralwatt, "HTTP requests")
-```
+![c4-context](./llm-neuralwatt-c4-components.png)
 
 ### Class Diagram
 
@@ -183,9 +122,9 @@ def decode(self, line: str) -> ServerSentEvent | None:
         return None  # Comments are ignored
 ```
 
-### Our Solution: Custom SSE Decoder
+#### What enables the logging in streaming mode: A custom SSE Decoder
 
-We subclass the SSE decoder to capture energy comments before they're discarded.
+We subclass the SSE decoder to capture energy comments before they're discarded. 
 
 ## Data Flow: Streaming Request
 
@@ -242,7 +181,7 @@ Each energy measurement from Neuralwatt includes:
 
 For more details on attribution methodology, see the [Neuralwatt documentation](https://portal.neuralwatt.com/docs/energy-methodology).
 
-## Why Subclass Instead of Replace?
+## Other approaches considered
 
 We considered replacing the OpenAI client with raw `httpx` requests, but subclassing preserves:
 
