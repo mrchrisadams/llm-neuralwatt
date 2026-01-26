@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.4] - 2026-01-26
+### Added
+- Comprehensive smoke tests for NeuralWatt API integration (#4)
+- Isolated database testing to prevent interference with user's production logs
+- Validation of jq commands documented in README for energy data querying
+- Pytest markers to exclude smoke tests by default during CI runs
+
+### Fixed
+- Corrected jq command syntax in README for viewing energy data
+- Temporary database file cleanup after test execution
+- API key handling in test environment
+
+### Changed
+- Updated test configuration to exclude smoke tests by default
+- Enhanced smoke tests to use isolated environments
+- Improved test reliability and reduced CI flakiness
+
 ## [0.0.2] - 2026-01-24
 ### Added
 - Streaming support: Energy data is now captured in both streaming and non-streaming modes, using a custom SSE decoder to extract energy usage from Neuralwatt's SSE comments.
@@ -26,5 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Registers Neuralwatt models with LLM, including aliases and API key management.
 - Basic documentation and usage instructions.
 
+[0.0.4]: https://github.com/mrchrisadams/llm-neuralwatt/releases/tag/v0.0.4
 [0.0.2]: https://github.com/mrchrisadams/llm-neuralwatt/releases/tag/0.0.2
 [0.0.1]: https://github.com/mrchrisadams/llm-neuralwatt/releases/tag/0.0.1
