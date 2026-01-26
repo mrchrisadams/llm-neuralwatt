@@ -32,3 +32,4 @@ test = ["pytest"]
 markers = [
     "smoke_test: marks tests as smoke tests that make live API calls (deselect with '-m \"not smoke_test\"')"
 ]
+addopts = "-m 'not smoke_test'"
