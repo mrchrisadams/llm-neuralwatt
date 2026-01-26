@@ -1,40 +1,40 @@
-"""Smoke test for llm-neuralwatt plugin."""
+"""Smoke tests for llm-neuralwatt plugin."""
 
-import json
 import subprocess
 import sys
 import pytest
-import time
 import os
 
 
-def test_llm_neuralwatt_smoke_test():
-    """Smoke test that demonstrates using llm with neuralwatt plugin."""
-
-    # Get the API key from the file
+def _get_api_key():
+    """Get the API key from the file."""
     with open("neuralwatt.api.key.txt", "r") as f:
-        api_key = f.read().strip()
+        return f.read().strip()
 
-    # Ensure the key is set in environment variable
+
+def _run_llm_command(cmd_args, timeout=30, use_api_key=True):
+    """Helper to run LLM commands with proper environment setup."""
     env = os.environ.copy()
-    env["NEURALWATT_API_KEY"] = api_key
+    if use_api_key:
+        env["NEURALWATT_API_KEY"] = _get_api_key()
 
-    # Test 1: Basic API connectivity with a small request
+    cmd = [sys.executable, "-m", "llm", "prompt"] + cmd_args
+
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+
+
+@pytest.mark.smoke_test
+def test_llm_neuralwatt_basic_connectivity():
+    """Basic API connectivity smoke test."""
     try:
-        # Using a simple prompt to avoid heavy processing
-        cmd = [
-            sys.executable,
-            "-m",
-            "llm",
-            "prompt",
-            "Say hello world in one word",
-            "-m",
-            "neuralwatt-gpt-oss",
-            "--no-stream",
-        ]
-
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=30, env=env
+        result = _run_llm_command(
+            [
+                "Say hello world in one word",
+                "-m",
+                "neuralwatt-gpt-oss",
+                "--no-stream",
+                "--no-log",
+            ]
         )
 
         # Check that the command executed successfully
@@ -48,73 +48,94 @@ def test_llm_neuralwatt_smoke_test():
     except subprocess.TimeoutExpired:
         pytest.fail("LLM command timed out - NeuralWatt API may be unreachable")
     except Exception as e:
-        pytest.fail(f"Unexpected error during smoke test: {e}")
+        pytest.fail(f"Unexpected error during basic connectivity test: {e}")
 
 
-def test_llm_neuralwatt_with_logs():
-    """Test that neuralwatt captures energy data in logs."""
-
-    # Get the API key from the file
-    with open("neuralwatt.api.key.txt", "r") as f:
-        api_key = f.read().strip()
-
-    # Ensure the key is set in environment variable
-    env = os.environ.copy()
-    env["NEURALWATT_API_KEY"] = api_key
-
+@pytest.mark.smoke_test
+def test_llm_neuralwatt_streaming_functionality():
+    """Streaming API functionality smoke test."""
     try:
-        # Using a simple prompt to test logging
-        cmd = [
-            sys.executable,
-            "-m",
-            "llm",
-            "prompt",
-            "What is 2+2?",
-            "-m",
-            "neuralwatt-gpt-oss",
-            "--no-stream",
-        ]
-
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=30, env=env
+        result = _run_llm_command(
+            ["Say hello", "-m", "neuralwatt-gpt-oss", "--no-log"], timeout=30
         )
 
         # Check that the command executed successfully
         assert result.returncode == 0, (
-            f"LLM command failed with return code {result.returncode}: {result.stderr}"
+            f"LLM streaming command failed with return code {result.returncode}: {result.stderr}"
         )
 
         # Check that we got a response
-        assert len(result.stdout.strip()) > 0, "No response received"
+        response_text = result.stdout.strip()
+        assert len(response_text) > 0, "No response received from streaming API"
 
-        # Now check the logs for energy data
-        log_cmd = [
-            sys.executable,
-            "-m",
-            "llm",
-            "logs",
-            "--model",
-            "neuralwatt-gpt-oss",
-            "-n",
-            "1",  # Only get the last entry
-        ]
-
-        log_result = subprocess.run(
-            log_cmd, capture_output=True, text=True, timeout=10, env=env
+        # Verify the response contains expected content
+        assert "hello" in response_text.lower() or "Hello" in response_text, (
+            "Response doesn't seem to contain expected content"
         )
 
-        # This test is more about verifying the API works than checking logs
-        # since the log structure might vary
+    except subprocess.TimeoutExpired:
+        pytest.fail(
+            "LLM streaming command timed out - NeuralWatt API may be unreachable"
+        )
+    except Exception as e:
+        pytest.fail(f"Unexpected error during streaming test: {e}")
+
+
+@pytest.mark.smoke_test
+def test_llm_neuralwatt_streaming_vs_non_streaming():
+    """Compare streaming vs non-streaming responses."""
+    try:
+        # Test with streaming (default)
+        streaming_result = _run_llm_command(
+            ["What is the capital of France?", "-m", "neuralwatt-gpt-oss", "--no-log"]
+        )
+
+        # Check that the streaming command executed successfully
+        assert streaming_result.returncode == 0, (
+            f"Streaming command failed with return code {streaming_result.returncode}: {streaming_result.stderr}"
+        )
+
+        # Test with explicit non-streaming
+        non_streaming_result = _run_llm_command(
+            [
+                "What is the capital of France?",
+                "-m",
+                "neuralwatt-gpt-oss",
+                "--no-stream",
+                "--no-log",
+            ]
+        )
+
+        # Check that the non-streaming command executed successfully
+        assert non_streaming_result.returncode == 0, (
+            f"Non-streaming command failed with return code {non_streaming_result.returncode}: {non_streaming_result.stderr}"
+        )
+
+        # Both should return responses
+        streaming_response = streaming_result.stdout.strip()
+        non_streaming_response = non_streaming_result.stdout.strip()
+
+        assert len(streaming_response) > 0, "No response from streaming API"
+        assert len(non_streaming_response) > 0, "No response from non-streaming API"
+
+        # Both responses should contain the expected answer
+        assert "Paris" in streaming_response or "paris" in streaming_response.lower(), (
+            "Streaming response doesn't mention Paris"
+        )
+        assert (
+            "Paris" in non_streaming_response
+            or "paris" in non_streaming_response.lower()
+        ), "Non-streaming response doesn't mention Paris"
 
     except subprocess.TimeoutExpired:
         pytest.fail("LLM command timed out - NeuralWatt API may be unreachable")
     except Exception as e:
-        pytest.fail(f"Unexpected error during logging test: {e}")
+        pytest.fail(f"Unexpected error during streaming comparison test: {e}")
 
 
-def test_llm_neuralwatt_available_models():
+@pytest.mark.smoke_test
+def test_llm_neuralwatt_model_availability():
     """Verify that neuralwatt models are available."""
-
     try:
         # List available models
         cmd = [sys.executable, "-m", "llm", "models", "list"]

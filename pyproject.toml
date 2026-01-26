@@ -27,3 +27,8 @@ neuralwatt = "llm_neuralwatt"
 
 [project.optional-dependencies]
 test = ["pytest"]
+
+[tool.pytest.ini_options]
+markers = [
+    "smoke_test: marks tests as smoke tests that make live API calls (deselect with '-m \"not smoke_test\"')"
+]
