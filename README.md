@@ -41,7 +41,7 @@ This plugin automatically captures and logs energy consumption data from Neuralw
 To view energy consumption for your requests:
 ```bash
 # View recent logs with energy data
-llm logs --model neuralwatt-gpt-oss --json | jq '.[-5:].response_json.energy'
+llm logs --model neuralwatt-gpt-oss --json | jq '.[-1:].[].response_json.energy'
 
 # Query specific energy metrics
 llm logs --model neuralwatt-deepseek-coder --json | jq -r '.[] | select(.response_json.energy != null) | "\(.datetime_utc): \(.response_json.energy.energy_joules) joules, \(.response_json.energy.energy_kwh) kWh"'
